@@ -1,7 +1,7 @@
 import requests
 from fastapi import APIRouter, HTTPException,Query
 from sourcecode.crmAuthentication import authenticate_crm
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import boto3
 import json,httpx
 
@@ -10,7 +10,7 @@ router = APIRouter()
 # Initialize the AWS Secrets Manager client
 secrets_client = boto3.client("secretsmanager")
 
-S3_BUCKET_NAME = "crmtomoe"
+S3_BUCKET_NAME = "crmtomoetest"
 
 def get_secret(secret_name: str):
     """Fetch secrets from AWS Secrets Manager."""
@@ -87,70 +87,155 @@ async def fetch_leads():
 
     global global_token
 
-
     try:
-        # Authenticate and get the access token
         token = await authenticate_crm()
         global_token=token  # Ensure you're awaiting the async function
         if not token:
             raise HTTPException(status_code=401, detail="Failed to retrieve access token")
         # print(f"Token: {token}")
-
-        # Prepare the headers for the request
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
         }
 
-        # Get the current time and subtract one hour to get the time range
-        one_hour_ago = (datetime.utcnow() - timedelta(hours=1))
+        # Define the date range in IST
+        ist = timezone(timedelta(hours=5, minutes=30))
+        start_of_day_ist = datetime(2025, 1, 7, 0, 0, 0, tzinfo=ist)
+        end_of_day_ist = datetime(2025, 1, 7, 23, 59, 59, tzinfo=ist)
 
-        # Format the DateTimeOffset correctly for CRM API (including UTC timezone)
-        period = one_hour_ago.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'  # Exclude extra microseconds and add 'Z' for UTC
-
-        print(f"Formatted time: {period}")
-
-
-        #
-        # Set the API endpoint to fetch leads from Dynamics 365 CRM # top 5 is set up here for dev
-        leads_url = f"{CRM_API_URL}/api/data/v9.0/leads?$filter=(createdon ge {period} or modifiedon ge {period} )&$select=lastname,new_afileadscore,_parentcontactid_value,_parentaccountid_value,companyname,mobilephone,telephone1,emailaddress1,new_leadtype,leadsourcecode,new_utm_campaign,new_utm_campaignname,new_utm_content,new_utm_source,new_utm_medium,new_utm_term,new_utm_keyword,createdon,_ownerid_value,statuscode,subject&$expand=parentcontactid($select=emailaddress1),parentaccountid($select=accountnumber)"
-
-        # Initialize an empty list to store leads
+        # Convert IST to UTC for the API query
+        start_period = start_of_day_ist.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+        end_period = end_of_day_ist.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+        # Initial API endpoint
+        leads_url = f"{CRM_API_URL}/api/data/v9.0/leads?$filter=(createdon ge {start_period} and createdon le {end_period} or modifiedon ge {start_period} and modifiedon le {end_period})&$select=lastname,new_afileadscore,_parentcontactid_value,_parentaccountid_value,companyname,mobilephone,telephone1,emailaddress1,new_leadtype,leadsourcecode,new_utm_campaign,new_utm_campaignname,new_utm_content,new_utm_source,new_utm_medium,new_utm_term,new_utm_keyword,createdon,modifiedon,_ownerid_value,statuscode,subject&$expand=parentcontactid($select=emailaddress1),parentaccountid($select=accountnumber)"
+        
         all_leads = []
+        total_records_fetched = 0
+        created_on_count = 0
+        modified_on_count = 0
 
-        # Fetch leads with pagination
         async with httpx.AsyncClient() as client:
             while leads_url:
-                response = requests.get(leads_url, headers=headers)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    all_leads.extend(data.get("value", []))  # Add the leads to the list
+                try:
+                    response = await client.get(leads_url, headers=headers)
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        batch_records = data.get("value", [])
+                        all_leads.extend(batch_records)
+                        total_records_fetched += len(batch_records)
 
-                    leads_url = data.get("@odata.nextLink")
+                        # Count records based on 'createdon' and 'modifiedon'
+                        for record in batch_records:
+                            createdon = record.get('createdon')
+                            modifiedon = record.get('modifiedon')
+
+                            if createdon and start_period <= createdon <= end_period:
+                                created_on_count += 1
+                                print(f"Created: {record.get('emailaddress1')}, CreatedOn: {createdon}")
+
+                            if modifiedon and start_period <= modifiedon <= end_period:
+                                modified_on_count += 1
+                                print(f"Modified: {record.get('emailaddress1')}, ModifiedOn: {modifiedon}")
+
+                        leads_url = data.get("@odata.nextLink")
+                    else:
+                        error_message = f"Failed to fetch leads: {response.status_code} - {response.text}"
+                        log_error(S3_BUCKET_NAME, error_message)
+                        raise HTTPException(status_code=response.status_code, detail=f"Failed to fetch leads: {response.status_code} - {response.text}")
+
+                except httpx.RequestError as e:
+                    error_message = f"Error during HTTP Request: {str(e)}"
+                    log_error(S3_BUCKET_NAME, error_message)
+                    raise HTTPException(status_code=500, detail=f"Error during HTTP Request: {str(e)}")
+                
+                except Exception as e:
+                    error_message = f"Error during fetch-leads: {str(e)}"
+                    log_error(S3_BUCKET_NAME, error_message)
+                    raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+        print(f"Total records fetched: {total_records_fetched}")
+        print(f"Records created on: {created_on_count}")
+        print(f"Records modified on: {modified_on_count}")
+
+        return {"leads": all_leads, "created_on_count": created_on_count, "modified_on_count": modified_on_count}
+
+    except Exception as e:
+        error_message = f"Error in fetch_leads function: {str(e)}"
+        log_error(S3_BUCKET_NAME, error_message)
+        raise HTTPException(status_code=500, detail=f"Error in fetch_leads function: {str(e)}")
+
+
+
+# async def fetch_leads():
+
+#     global global_token
+
+
+#     try:
+#         # Authenticate and get the access token
+#         token = await authenticate_crm()
+#         global_token=token  # Ensure you're awaiting the async function
+#         if not token:
+#             raise HTTPException(status_code=401, detail="Failed to retrieve access token")
+#         # print(f"Token: {token}")
+
+#         # Prepare the headers for the request
+#         headers = {
+#             "Authorization": f"Bearer {token}",
+#             "Content-Type": "application/json",
+#             'MOE-APPKEY':'6978DCU8W19J0XQOKS7NEE1C'
+#         }
+
+#         # Get the current time and subtract one hour to get the time range
+#         one_hour_ago = (datetime.utcnow() - timedelta(hours=1))
+
+#         # Format the DateTimeOffset correctly for CRM API (including UTC timezone)
+#         period = one_hour_ago.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'  # Exclude extra microseconds and add 'Z' for UTC
+
+#         print(f"Formatted time: {period}")
+
+
+#         #
+#         # Set the API endpoint to fetch leads from Dynamics 365 CRM # top 5 is set up here for dev
+#         leads_url = f"{CRM_API_URL}/api/data/v9.0/leads?$filter=(createdon ge {period} or modifiedon ge {period} )&$select=lastname,new_afileadscore,_parentcontactid_value,_parentaccountid_value,companyname,mobilephone,telephone1,emailaddress1,new_leadtype,leadsourcecode,new_utm_campaign,new_utm_campaignname,new_utm_content,new_utm_source,new_utm_medium,new_utm_term,new_utm_keyword,createdon,_ownerid_value,statuscode,subject&$expand=parentcontactid($select=emailaddress1),parentaccountid($select=accountnumber)"
+
+#         # Initialize an empty list to store leads
+#         all_leads = []
+
+#         # Fetch leads with pagination
+#         async with httpx.AsyncClient() as client:
+#             while leads_url:
+#                 response = requests.get(leads_url, headers=headers)
+                
+#                 if response.status_code == 200:
+#                     data = response.json()
+#                     all_leads.extend(data.get("value", []))  # Add the leads to the list
+
+#                     leads_url = data.get("@odata.nextLink")
                     
             
-                    if leads_url:
-                        print(f"Fetching more leads from {leads_url}")
-                else:
+#                     if leads_url:
+#                         print(f"Fetching more leads from {leads_url}")
+#                 else:
             
-                    error_message = f"Failed to fetch leads: {response.status_code} - {response.text}"
-                    log_error(S3_BUCKET_NAME, error_message)
-                    raise HTTPException(status_code=response.status_code, detail="Failed to fetch leads from CRM.")
+#                     error_message = f"Failed to fetch leads: {response.status_code} - {response.text}"
+#                     log_error(S3_BUCKET_NAME, error_message)
+#                     raise HTTPException(status_code=response.status_code, detail="Failed to fetch leads from CRM.")
             
-        # Return the aggregated leads
-        return {"leads": all_leads}
+#         # Return the aggregated leads
+#         return {"leads": all_leads}
     
-    except httpx.RequestError as e:
-        error_message=f"Error during HTTP Request :{str(e)}"
-        log_error(S3_BUCKET_NAME,error_message)
-        raise HTTPException(status_code=500,details="Error during HTTP request.")    
+#     except httpx.RequestError as e:
+#         error_message=f"Error during HTTP Request :{str(e)}"
+#         log_error(S3_BUCKET_NAME,error_message)
+#         raise HTTPException(status_code=500,details="Error during HTTP request.")    
     
     
-    except Exception as e:
-        error_message = f"Error during fetch-leads: {str(e)}"
-        log_error(S3_BUCKET_NAME, error_message)
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+#     except Exception as e:
+#         error_message = f"Error during fetch-leads: {str(e)}"
+#         log_error(S3_BUCKET_NAME, error_message)
+#         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
 async def map_lead_to_moengage(lead):
@@ -192,14 +277,14 @@ async def map_lead_to_moengage(lead):
         
         lead_source = leadsourcecode_options.get(lead.get("leadsourcecode"), "")
         print(lead_source)
-        lead_status = statuscode_options.get(lead.get("statuscode"), "Unknown Status")
+        lead_status = statuscode_options.get(lead.get("statuscode"), "")
         print(lead_status)
 
 
 
 
 
-        lead_status = statuscode_options.get(lead.get("statuscode"), "Unknown Status")
+        lead_status = statuscode_options.get(lead.get("statuscode"), "")
         print("calling parent account and contact id")
         parent_contact=lead.get("parentcontactid")
         parent_account=lead.get("parentaccountid")
@@ -290,6 +375,21 @@ async def send_to_moengage(leads):
 
     try:
         for lead in leads:
+            # Check if email is missing
+            if not lead.get('emailaddress1'):
+                fail_count += 1
+                record = {
+                    "email": None,  # or some indicator like "email_missing"
+                    "error": "Email address is missing"
+                }
+                failed_records.append(record)
+                # print(f"Lead email is missing for {lead}")
+                # await send_to_SQS(lead)  # send the failed payload to SQS
+                # error_message = f"Email missing for account {lead}"
+                # log_error(S3_BUCKET_NAME, error_message)  # Log the error
+                # print(f"Failed to send lead due to missing email")
+                continue  # Skip further processing for this lead
+
             payload = await map_lead_to_moengage(lead)
             try:
                 response = requests.post(MOENGAGE_API_URL, json=payload, headers=headers)
@@ -309,11 +409,9 @@ async def send_to_moengage(leads):
                         "email": lead['emailaddress1'],
                         "error": response.text
                     }
-
-
                     failed_records.append(record)
 
-                    # send the falied payload to sqs
+                    # send the failed payload to SQS
                     await send_to_SQS(payload)
                     print(failed_records)
                     error_message = f"Failed to send account {lead['emailaddress1']}: {response.text}"
@@ -322,27 +420,26 @@ async def send_to_moengage(leads):
 
             except Exception as e:
                 print(e)
-                error_message=f"Error Occured while sending the payload to moengage:{str(e)}"
+                error_message = f"Error Occurred while sending the payload to MoEngage: {str(e)}"
                 log_error(S3_BUCKET_NAME, error_message)
-                raise HTTPException(status_code=500,details=f"{str(e)}")       
+                raise HTTPException(status_code=500, details=f"{str(e)}")
 
-
+        # Log the processed records
         log_message = json.dumps({
-        "timestamp": datetime.utcnow().isoformat(),
-        "success_count": success_count,
-        "fail_count": fail_count,
-        "total_accounts": len(leads),
-        "success_records": success_records,
-        "failed_records": failed_records
-      }, indent=4)  # Optional: indent makes JSON more readable
+            "timestamp": datetime.utcnow().isoformat(),
+            "success_count": success_count,
+            "fail_count": fail_count,
+            "total_leads": len(leads),
+            "success_records": success_records,
+            "failed_records": failed_records
+        }, indent=4)  # Optional: indent makes JSON more readable
 
-        log_processedRecords(S3_BUCKET_NAME, log_message)       
+        log_processedRecords(S3_BUCKET_NAME, log_message)
 
     except Exception as e:
         error_message = f"Error during send-to-moengage function: {str(e)}"
         log_error(S3_BUCKET_NAME, error_message)
-        raise HTTPException(status_code=500,details="Please contact the Developer")
-   
+        raise HTTPException(status_code=500, details="Please contact the Developer")
 
     
 
@@ -635,9 +732,8 @@ async def retry_failed_payloads_from_sqs():
                     headers = {
                         'Authorization': token_moe,
                         'Content-Type': 'application/json',
-                        'MOE-APPKEY': '6978DCU8W19J0XQOKS7NEE1C'
+                        'MOE-APPKEY': '6978DCU8W19J0XQOKS7NEE1C_DEBUG'
                     }
-                    
                     response = requests.post(MOENGAGE_API_URL, json=payload, headers=headers)
 
                     if response.status_code == 200:
@@ -662,6 +758,3 @@ async def retry_failed_payloads_from_sqs():
         error_message = f"Error while retrying failed payloads from SQS: {str(e)}"
         log_error(S3_BUCKET_NAME, error_message)
         raise HTTPException(status_code=500, detail=error_message)
-
-
-
