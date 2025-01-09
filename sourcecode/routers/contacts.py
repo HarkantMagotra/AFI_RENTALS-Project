@@ -113,8 +113,8 @@ async def fetch_contacts():
 
         # Define the date range in UTC for the API query
         ist = timezone(timedelta(hours=5, minutes=30))
-        start_of_day_ist = datetime(2025, 1, 7, 0, 0, 0, tzinfo=ist)
-        end_of_day_ist = datetime(2025, 1, 7, 23, 59, 59, tzinfo=ist)
+        start_of_day_ist = datetime(2025, 1, 8, 0, 0, 0, tzinfo=ist)
+        end_of_day_ist = datetime(2025, 1, 8, 23, 59, 59, tzinfo=ist)
 
         start_period = start_of_day_ist.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
         end_period = end_of_day_ist.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
@@ -288,156 +288,6 @@ async def fetch_contacts():
 #         log_error(S3_BUCKET_NAME, error_message)
 #         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
-
-# async def fetch_contacts():
-#     """Fetch contacts from Dynamics 365 CRM using the access token."""
-#     try:
-#         token = await authenticate_crm()
-#         if not token:
-#             raise HTTPException(status_code=401, detail="Failed to retrieve access token")
-
-#         headers = {
-#             "Authorization": f"Bearer {token}",
-#             "Content-Type": "application/json",
-#         }
-
-#         query = ("emailaddress1,_accountid_value,_parentcustomerid_value,modifiedon,telephone1,mobilephone,jobtitle,"
-#                  "firstname,address1_city,lastname,address1_line1,address1_line2,address1_line3,address1_postalcode,"
-#                  "donotemail,donotphone,new_afiupliftemail,new_underbridgevanmountemail,new_rapidemail,new_rentalsspecialoffers,"
-#                  "new_resaleemail,new_trackemail,new_truckemail,new_utnemail,new_hoistsemail,data8_tpsstatus,new_lastmewpscall,"
-#                  "new_lastmewpscallwith,new_lastemailed,new_lastemailedby,new_lastcalled,new_lastcalledby,new_registerforupliftonline,"
-#                  "createdon,preferredcontactmethodcode")
-        
-#         query2 = ("$expand=parentcustomerid_account($select=accountnumber,name,new_accountopened,creditlimit,"
-#                   "new_creditposition,new_ytdrevenue,new_lastyearrevenue,new_twoyearsagorevenue,data8_tpsstatus,"
-#                   "address1_line1,address1_line2,address1_line3,address1_city,address1_postalcode,sic,new_registration_no,"
-#                   "_new_primaryhirecontact_value,_new_primarytrainingcontact_value,new_lastinvoicedate,new_lasttrainingdate,"
-#                   "new_groupaccountmanager,new_rentalam,donotemail,donotphone,new_afiupliftemail,new_underbridgevanmountemail,"
-#                   "new_rapidemail,new_rentalsspecialoffers,new_resaleemail,new_trackemail,new_truckemail,new_utnemail,"
-#                   "new_hoistsemail,emailaddress1;$expand=new_PrimaryHireContact($select=emailaddress1),new_PrimaryTrainingContact($select=emailaddress1))")
-        
-#         # Define the date range in IST
-#         ist = timezone(timedelta(hours=5, minutes=30))
-#         start_of_day_ist = datetime(2025, 1, 7, 0, 0, 0, tzinfo=ist)
-#         end_of_day_ist = datetime(2025, 1, 7, 23, 59, 59, tzinfo=ist)
-
-#         # Convert IST to UTC for the API query
-#         start_period = start_of_day_ist.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
-#         end_period = end_of_day_ist.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
-
-#         print(f"Fetching contacts from: {start_period} to {end_period}")    
-
-#         contacts_url = (f"{CRM_API_URL}/api/data/v9.0/contacts?"
-#                         f"$filter=(createdon ge {start_period} and createdon le {end_period} or "
-#                         f"modifiedon ge {start_period} and modifiedon le {end_period})&$select={query}&{query2}")
-
-#         all_contacts = []
-#         created_on_count = 0
-#         modified_on_count = 0
-
-#         async with httpx.AsyncClient() as client:
-#             while contacts_url:
-#                 response = await client.get(contacts_url, headers=headers)
-#                 if response.status_code == 200:
-#                     data = response.json()
-#                     all_contacts.extend(data.get("value", []))
-#                     count=0
-#                     # Count records based on 'createdon' and 'modifiedon'
-#                     for record in data.get("value", []):
-#                         count+=1
-#                         print(count)
-#                         if 'createdon' in record and start_period <= record['createdon'] <= end_period:
-#                             created_on_count += 1
-#                             # Print details for 'createdon' records, including emailaddress1
-#                             print(f"Created - Name: {record.get('firstname')} {record.get('lastname')}, "
-#                                   f"Email: {record.get('emailaddress1')}, Account Number: {record.get('accountnumber')}")
-
-#                         if 'modifiedon' in record and start_period <= record['modifiedon'] <= end_period:
-#                             modified_on_count += 1
-#                             # Print details for 'modifiedon' records
-#                             print(f"Modified - Name: {record.get('firstname')} {record.get('lastname')}, "
-#                                   f"Email: {record.get('emailaddress1')}, Account Number: {record.get('accountnumber')}")
-
-#                     # Handle pagination for more records
-#                     contacts_url = data.get("@odata.nextLink")
-#                 else:
-#                     error_message = f"Error while fetching contacts: {response.text}"
-#                     log_error(S3_BUCKET_NAME, error_message)
-#                     raise HTTPException(status_code=response.status_code, detail="Failed to fetch contacts from CRM.")
-
-#         # Print total counts of created and modified records
-#         print(f"Total records fetched: {len(all_contacts)}")
-#         print(f"Created on records count: {created_on_count}")
-#         print(f"Modified on records count: {modified_on_count}")
-
-#         return {"contacts": all_contacts, "created_on_count": created_on_count, "modified_on_count": modified_on_count}
-
-#     except httpx.RequestError as e:
-#         error_message = f"Error during HTTP request: {str(e)}"
-#         log_error(S3_BUCKET_NAME, error_message)
-#         raise HTTPException(status_code=500, detail="Error during HTTP request.")
-#     except Exception as e:
-#         error_message = f"Failed to fetch contacts: {str(e)}"
-#         log_error(S3_BUCKET_NAME, error_message)
-#         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
-
-
-# async def fetch_contacts():
-#     """Fetch contacts from Dynamics 365 CRM using the access token."""
-#     try:
-#         token = await authenticate_crm()
-#         if not token:
-#             raise HTTPException(status_code=401, detail="Failed to retrieve access token")
-
-#         headers = {
-#             "Authorization": f"Bearer {token}",
-#             "Content-Type": "application/json",
-#         }
-
-#         query="emailaddress1,_accountid_value,_parentcustomerid_value,modifiedon,telephone1,mobilephone,jobtitle,firstname,address1_city,lastname,address1_line1,address1_line2,address1_line3,address1_postalcode,donotemail,donotphone,new_afiupliftemail,new_underbridgevanmountemail,new_rapidemail,new_rentalsspecialoffers,new_resaleemail,new_trackemail,new_truckemail,new_utnemail,new_hoistsemail,data8_tpsstatus,new_lastmewpscall,new_lastmewpscallwith,new_lastemailed,new_lastemailedby,new_lastcalled,new_lastcalledby,new_registerforupliftonline,createdon,preferredcontactmethodcode"       
-#         query2="$expand=parentcustomerid_account($select=accountnumber,name,new_accountopened,creditlimit,new_creditposition,new_ytdrevenue,new_lastyearrevenue,new_twoyearsagorevenue,data8_tpsstatus,address1_line1,address1_line2,address1_line3,address1_city,address1_postalcode,sic,new_registration_no,_new_primaryhirecontact_value,_new_primarytrainingcontact_value,new_lastinvoicedate,new_lasttrainingdate,new_groupaccountmanager,new_rentalam,donotemail,donotphone,new_afiupliftemail,new_underbridgevanmountemail,new_rapidemail,new_rentalsspecialoffers,new_resaleemail,new_trackemail,new_truckemail,new_utnemail,new_hoistsemail,emailaddress1;$expand=new_PrimaryHireContact($select=emailaddress1),new_PrimaryTrainingContact($select=emailaddress1))"
-#         # period = (datetime.utcnow() - timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
-
-#         # contacts_url = f"{CRM_API_URL}/api/data/v9.0/contacts?$filter=(createdon ge {period} or modifiedon ge {period})&$select={query}&{query2}"
-        
-#         # Set the date range for December 26, 2024
-#         start_of_day = datetime(2025, 1, 2, 0, 0, 0)  # Start of the day
-#         end_of_day = datetime(2025, 1, 2, 23, 59, 59)  # End of the day
-
-#         # Format the DateTimeOffset correctly for CRM API
-#         start_period = start_of_day.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
-#         end_period = end_of_day.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
-
-#         print(f"Fetching contacts from: {start_period} to {end_period}")
-
-#         contacts_url = f"{CRM_API_URL}/api/data/v9.0/contacts?$filter=(createdon ge {start_period} and createdon le {end_period} or modifiedon ge {start_period} and modifiedon le {end_period})&$select={query}&{query2}"
-        
-
-#         all_contacts = []
-#         print("just entered contacts")
-        
-#         async with httpx.AsyncClient() as client:
-#             while contacts_url:
-#                 response = await client.get(contacts_url, headers=headers)
-#                 if response.status_code == 200:
-#                     data = response.json()
-#                     all_contacts.extend(data.get("value", []))
-#                     contacts_url = data.get("@odata.nextLink")
-#                 else:
-#                     error_message = f"Error while fetching-contacts: {response.text}"
-#                     log_error(S3_BUCKET_NAME, error_message)
-#                     raise HTTPException(status_code=response.status_code, detail="Failed to fetch contacts from CRM.")
-
-#         return {"contacts": all_contacts}
-
-#     except httpx.RequestError as e:
-#         error_message = f"Error during HTTP request: {str(e)}"
-#         log_error(S3_BUCKET_NAME, error_message)
-#         raise HTTPException(status_code=500, detail="Error during HTTP request.")
-#     except Exception as e:
-#         error_message = f"Failed to fetch-contacts: {str(e)}"
-#         log_error(S3_BUCKET_NAME, error_message)
-#         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 
 
@@ -669,7 +519,7 @@ async def send_to_moengage(all_contacts, created_on_contacts, modified_on_contac
             error_message = f"Error Occurred while sending the payload to MoEngage: {str(e)}"
             log_error(S3_BUCKET_NAME, error_message)
             print(e)
-            raise HTTPException(status_code=500, details=f"{str(e)}")
+            raise HTTPException(status_code=500, detail=f"{str(e)}")
 
     # Process Created On Contacts
     for contact in created_on_contacts:
@@ -698,7 +548,7 @@ async def send_to_moengage(all_contacts, created_on_contacts, modified_on_contac
             error_message = f"Error Occurred while sending the payload to MoEngage: {str(e)}"
             log_error(S3_BUCKET_NAME, error_message)
             print(e)
-            raise HTTPException(status_code=500, details=f"{str(e)}")
+            raise HTTPException(status_code=500, detail=f"{str(e)}")
 
     # Process Modified On Contacts
     for contact in modified_on_contacts:
@@ -727,7 +577,7 @@ async def send_to_moengage(all_contacts, created_on_contacts, modified_on_contac
             error_message = f"Error Occurred while sending the payload to MoEngage: {str(e)}"
             log_error(S3_BUCKET_NAME, error_message)
             print(e)
-            raise HTTPException(status_code=500, details=f"{str(e)}")
+            raise HTTPException(status_code=500, detail=f"{str(e)}")
 
     # Log the processed records for each category
     log_message = json.dumps({

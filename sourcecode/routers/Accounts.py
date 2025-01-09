@@ -67,7 +67,7 @@ def log_processedRecords(bucketname:str,log_records:str,source:str ="accounts",k
     except Exception as e:
         error_message = str(e)
         log_error(S3_BUCKET_NAME, error_message)
-        raise HTTPException(status_code=500,details="Processed Records Failed to log.")
+        raise HTTPException(status_code=500,detail="Processed Records Failed to log.")
     
 
 
@@ -85,97 +85,203 @@ async def fetch_accounts():
             "Content-Type": "application/json",
         }
 
-        # Specify the query and the date range
-        query = ("new_afiupliftemail,new_underbridgevanmountemail,new_rapidemail,new_rentalsspecialoffers,"
-                 "new_resaleemail,new_trackemail,new_truckemail,new_utnemail,new_hoistsemail,address1_city,"
-                 "sic,new_registration_no,_new_primaryhirecontact_value,new_lastinvoicedate,new_lasttrainingdate,"
-                 "new_groupaccountmanager,new_rentalam,donotphone,donotemail,new_afiupliftemail,"
-                 "new_underbridgevanmountemail,_new_primarytrainingcontact_value,address1_line1,address1_line2,"
-                 "address1_line3,creditlimit,new_twoyearsagorevenue,data8_tpsstatus,new_creditposition,"
-                 "new_lastyearrevenue,statuscode,address1_postalcode,new_accountopened,name,"
-                 "_new_primaryhirecontact_value,accountnumber,telephone1,emailaddress1,createdon,modifiedon")
-        
+        # Specify the query and date range
+        query = (
+            "new_afiupliftemail,new_underbridgevanmountemail,new_rapidemail,new_rentalsspecialoffers,"
+            "new_resaleemail,new_trackemail,new_truckemail,new_utnemail,new_hoistsemail,address1_city,"
+            "sic,new_registration_no,_new_primaryhirecontact_value,new_lastinvoicedate,new_lasttrainingdate,"
+            "new_groupaccountmanager,new_rentalam,donotphone,donotemail,new_afiupliftemail,"
+            "new_underbridgevanmountemail,_new_primarytrainingcontact_value,address1_line1,address1_line2,"
+            "address1_line3,creditlimit,new_twoyearsagorevenue,data8_tpsstatus,new_creditposition,"
+            "new_lastyearrevenue,statuscode,address1_postalcode,new_accountopened,name,"
+            "_new_primaryhirecontact_value,accountnumber,telephone1,emailaddress1,createdon,modifiedon"
+        )
+        expand_query = (
+            "$expand=new_PrimaryHireContact($select=emailaddress1),"
+            "new_PrimaryTrainingContact($select=emailaddress1)"
+        )
+
         # Define the date range in IST
         ist = timezone(timedelta(hours=5, minutes=30))
-        start_of_day_ist = datetime(2025, 1, 7, 0, 0, 0, tzinfo=ist)
-        end_of_day_ist = datetime(2025, 1, 7, 23, 59, 59, tzinfo=ist)
+        start_of_day_ist = datetime(2025, 1, 8, 0, 0, 0, tzinfo=ist)
+        end_of_day_ist = datetime(2025, 1, 8, 23, 59, 59, tzinfo=ist)
 
         # Convert IST to UTC for the API query
         start_period = start_of_day_ist.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
         end_period = end_of_day_ist.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
 
-        # Initial API endpoint
-        accounts_url = (
+        print(f"Fetching accounts from: {start_period} to {end_period}")
+
+        created_url = (
             f"{CRM_API_URL}/api/data/v9.0/accounts?"
-            f"$filter=(createdon ge {start_period} and createdon le {end_period} or "
-            f"modifiedon ge {start_period} and modifiedon le {end_period})&$select={query}&"
-            f"$expand=new_PrimaryHireContact($select=emailaddress1),new_PrimaryTrainingContact($select=emailaddress1)"
+            f"$filter=(createdon ge {start_period} and createdon le {end_period})"
+            f"&$select={query}&{expand_query}"
         )
-        
+        modified_url = (
+            f"{CRM_API_URL}/api/data/v9.0/accounts?"
+            f"$filter=(modifiedon ge {start_period} and modifiedon le {end_period})"
+            f"&$select={query}&{expand_query}"
+        )
+
         all_accounts = []
-        total_records_fetched = 0
+        created_on_accounts = []
+        modified_on_accounts = []
         created_on_count = 0
         modified_on_count = 0
 
         async with httpx.AsyncClient() as client:
-            while accounts_url:
-                try:
-                    # Make the API request
-                    response = await client.get(accounts_url, headers=headers)
-                    
+            for url, target_list, counter_key in [
+                (created_url, created_on_accounts, 'created_on_count'),
+                (modified_url, modified_on_accounts, 'modified_on_count')
+            ]:
+                while url:
+                    response = await client.get(url, headers=headers)
                     if response.status_code == 200:
                         data = response.json()
-                        batch_records = data.get("value", [])
-                        all_accounts.extend(batch_records)
-                        total_records_fetched += len(batch_records)
+                        new_records = [record for record in data.get("value", []) if record not in target_list]
+                        target_list.extend(new_records)
+                        all_accounts.extend(new_records)
 
-                        # Count records based on 'createdon' and 'modifiedon'
-                        for record in batch_records:
-                            if 'createdon' in record and record['createdon'] >= start_period and record['createdon'] <= end_period:
-                                created_on_count += 1
-                                print(f"Name: {record.get('name')}, Email: {record.get('emailaddress1')}, Account Number: {record.get('accountnumber')}")
+                        if counter_key == 'created_on_count':
+                            created_on_count += len(new_records)
+                        else:
+                            modified_on_count += len(new_records)
 
-                            if 'modifiedon' in record and record['modifiedon'] >= start_period and record['modifiedon'] <= end_period:
-                                modified_on_count += 1
-
-                        # Get the next page URL from @odata.nextLink, if it exists
-                        accounts_url = data.get("@odata.nextLink")
+                        # Handle pagination for more records
+                        url = data.get("@odata.nextLink")
                     else:
-                        # Enhanced error logging
-                        error_message = f"Failed to fetch accounts: {response.status_code} - {response.text}"
+                        error_message = f"Error while fetching accounts: {response.text}"
                         log_error(S3_BUCKET_NAME, error_message)
-                        raise HTTPException(status_code=response.status_code, detail=f"Failed to fetch accounts: {response.status_code} - {response.text}")
+                        raise HTTPException(status_code=response.status_code, detail="Failed to fetch accounts from CRM.")
 
-                except httpx.RequestError as e:
-                    # Log full details for request errors
-                    error_message = f"Error during HTTP Request: {str(e)}"
-                    log_error(S3_BUCKET_NAME, error_message)
-                    raise HTTPException(status_code=500, detail=f"Error during HTTP Request: {str(e)}")
+        # Print total counts of created and modified records
+        print(f"Total records fetched: {len(all_accounts)}")
+        print(f"Created on records count: {created_on_count}")
+        print(f"Modified on records count: {modified_on_count}")
+
+        return {
+            "accounts": all_accounts,
+            "created_on_accounts": created_on_accounts,
+            "modified_on_accounts": modified_on_accounts,
+            "created_on_count": created_on_count,
+            "modified_on_count": modified_on_count,
+        }
+
+    except httpx.RequestError as e:
+        error_message = f"Error during HTTP request: {str(e)}"
+        log_error(S3_BUCKET_NAME, error_message)
+        raise HTTPException(status_code=500, detail="Error during HTTP request.")
+    except Exception as e:
+        error_message = f"Failed to fetch accounts: {str(e)}"
+        log_error(S3_BUCKET_NAME, error_message)
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+
+
+# async def fetch_accounts():
+#     """Fetch accounts from Dynamics 365 CRM using the access token."""
+#     try:
+#         token = await authenticate_crm()
+#         if not token:
+#             raise HTTPException(status_code=401, detail="Failed to retrieve access token")
+
+#         headers = {
+#             "Authorization": f"Bearer {token}",
+#             "Content-Type": "application/json",
+#         }
+
+#         # Specify the query and the date range
+#         query = ("new_afiupliftemail,new_underbridgevanmountemail,new_rapidemail,new_rentalsspecialoffers,"
+#                  "new_resaleemail,new_trackemail,new_truckemail,new_utnemail,new_hoistsemail,address1_city,"
+#                  "sic,new_registration_no,_new_primaryhirecontact_value,new_lastinvoicedate,new_lasttrainingdate,"
+#                  "new_groupaccountmanager,new_rentalam,donotphone,donotemail,new_afiupliftemail,"
+#                  "new_underbridgevanmountemail,_new_primarytrainingcontact_value,address1_line1,address1_line2,"
+#                  "address1_line3,creditlimit,new_twoyearsagorevenue,data8_tpsstatus,new_creditposition,"
+#                  "new_lastyearrevenue,statuscode,address1_postalcode,new_accountopened,name,"
+#                  "_new_primaryhirecontact_value,accountnumber,telephone1,emailaddress1,createdon,modifiedon")
+        
+#         # Define the date range in IST
+#         ist = timezone(timedelta(hours=5, minutes=30))
+#         start_of_day_ist = datetime(2025, 1, 7, 0, 0, 0, tzinfo=ist)
+#         end_of_day_ist = datetime(2025, 1, 7, 23, 59, 59, tzinfo=ist)
+
+#         # Convert IST to UTC for the API query
+#         start_period = start_of_day_ist.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+#         end_period = end_of_day_ist.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+
+#         # Initial API endpoint
+#         accounts_url = (
+#             f"{CRM_API_URL}/api/data/v9.0/accounts?"
+#             f"$filter=(createdon ge {start_period} and createdon le {end_period} or "
+#             f"modifiedon ge {start_period} and modifiedon le {end_period})&$select={query}&"
+#             f"$expand=new_PrimaryHireContact($select=emailaddress1),new_PrimaryTrainingContact($select=emailaddress1)"
+#         )
+        
+#         all_accounts = []
+#         total_records_fetched = 0
+#         created_on_count = 0
+#         modified_on_count = 0
+
+#         async with httpx.AsyncClient() as client:
+#             while accounts_url:
+#                 try:
+#                     # Make the API request
+#                     response = await client.get(accounts_url, headers=headers)
+                    
+#                     if response.status_code == 200:
+#                         data = response.json()
+#                         batch_records = data.get("value", [])
+#                         all_accounts.extend(batch_records)
+#                         total_records_fetched += len(batch_records)
+
+#                         # Count records based on 'createdon' and 'modifiedon'
+#                         for record in batch_records:
+#                             if 'createdon' in record and record['createdon'] >= start_period and record['createdon'] <= end_period:
+#                                 created_on_count += 1
+#                                 print(f"Name: {record.get('name')}, Email: {record.get('emailaddress1')}, Account Number: {record.get('accountnumber')}")
+
+#                             if 'modifiedon' in record and record['modifiedon'] >= start_period and record['modifiedon'] <= end_period:
+#                                 modified_on_count += 1
+
+#                         # Get the next page URL from @odata.nextLink, if it exists
+#                         accounts_url = data.get("@odata.nextLink")
+#                     else:
+#                         # Enhanced error logging
+#                         error_message = f"Failed to fetch accounts: {response.status_code} - {response.text}"
+#                         log_error(S3_BUCKET_NAME, error_message)
+#                         raise HTTPException(status_code=response.status_code, detail=f"Failed to fetch accounts: {response.status_code} - {response.text}")
+
+#                 except httpx.RequestError as e:
+#                     # Log full details for request errors
+#                     error_message = f"Error during HTTP Request: {str(e)}"
+#                     log_error(S3_BUCKET_NAME, error_message)
+#                     raise HTTPException(status_code=500, detail=f"Error during HTTP Request: {str(e)}")
                 
-                except Exception as e:
-                    # General error handling
-                    error_message = f"Error during fetch-Accounts: {str(e)}"
-                    log_error(S3_BUCKET_NAME, error_message)
-                    raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+#                 except Exception as e:
+#                     # General error handling
+#                     error_message = f"Error during fetch-Accounts: {str(e)}"
+#                     log_error(S3_BUCKET_NAME, error_message)
+#                     raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
-        # Final logging of counts
-        print(f"Total records fetched: {total_records_fetched}")
-        print(f"Records created on: {created_on_count}")
-        print(f"Records modified on: {modified_on_count}")
+#         # Final logging of counts
+#         print(f"Total records fetched: {total_records_fetched}")
+#         print(f"Records created on: {created_on_count}")
+#         print(f"Records modified on: {modified_on_count}")
 
-        return {"accounts": all_accounts, "created_on_count": created_on_count, "modified_on_count": modified_on_count}
+#         return {"accounts": all_accounts, "created_on_count": created_on_count, "modified_on_count": modified_on_count}
 
-    except Exception as e:
-        # General exception logging and re-raise HTTP exception
-        error_message = f"Error in fetch_accounts function: {str(e)}"
-        log_error(S3_BUCKET_NAME, error_message)
-        raise HTTPException(status_code=500, detail=f"Error in fetch_accounts function: {str(e)}")
+#     except Exception as e:
+#         # General exception logging and re-raise HTTP exception
+#         error_message = f"Error in fetch_accounts function: {str(e)}"
+#         log_error(S3_BUCKET_NAME, error_message)
+#         raise HTTPException(status_code=500, detail=f"Error in fetch_accounts function: {str(e)}")
 
-    except Exception as e:
-        # General exception logging and re-raise HTTP exception
-        error_message = f"Error in fetch_accounts function: {str(e)}"
-        log_error(S3_BUCKET_NAME, error_message)
-        raise HTTPException(status_code=500, detail=f"Error in fetch_accounts function: {str(e)}")
+#     except Exception as e:
+#         # General exception logging and re-raise HTTP exception
+#         error_message = f"Error in fetch_accounts function: {str(e)}"
+#         log_error(S3_BUCKET_NAME, error_message)
+#         raise HTTPException(status_code=500, detail=f"Error in fetch_accounts function: {str(e)}")
 
 
 
@@ -371,35 +477,51 @@ def map_account_to_moengage(account):
     except Exception as e:
         error_message = f"Error during map-to-account function: {str(e)}"
         log_error(S3_BUCKET_NAME, error_message)
-        raise HTTPException(status_code=500,details="failed in map-to-account function")
+        raise HTTPException(status_code=500,detail="failed in map-to-account function")
 
 
 
 @router.get("/sync")
 async def sync_accounts():
     """Fetch accounts from CRM and send them to MoEngage."""
-    
     try:
         print("entered sync accounts")
+
+        # Fetch the accounts from CRM (already filtered by created and modified dates)
         accounts_response = await fetch_accounts()
-        accounts = accounts_response.get("accounts", [])
 
-        await send_to_moengage(accounts)
+        # Extract the accounts directly from the response
+        all_accounts = accounts_response.get("accounts", [])
+        created_on_accounts = accounts_response.get("created_on_accounts", [])
+        modified_on_accounts = accounts_response.get("modified_on_accounts", [])
 
-        
-        return {"status": "Accounts synchronized to moengage.Please verify the status"}
+        # Send the accounts to MoEngage with the necessary categorization
+        await send_to_moengage(all_accounts, created_on_accounts, modified_on_accounts)
 
+        return {"status": "Accounts synchronized successfully to MoEngage"}
 
     except Exception as e:
         error_message = f"Error during sync-Accounts: {str(e)}"
         log_error(S3_BUCKET_NAME, error_message)
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
-async def send_to_moengage(accounts):
-    success_count = 0
-    fail_count = 0
-    success_records = []
-    failed_records = []
+
+async def send_to_moengage(all_accounts, created_on_accounts, modified_on_accounts):
+    # Initialize success and failure counts for each category
+    success_all = 0
+    fail_all = 0
+    success_created = 0
+    fail_created = 0
+    success_modified = 0
+    fail_modified = 0
+
+    # Initialize lists to store success and failed records
+    success_records_all = []
+    failed_records_all = []
+    success_records_created = []
+    failed_records_created = []
+    success_records_modified = []
+    failed_records_modified = []
 
     headers = {
         'Authorization': token_moe,
@@ -407,69 +529,219 @@ async def send_to_moengage(accounts):
         'MOE-APPKEY': '6978DCU8W19J0XQOKS7NEE1C'
     }
 
-    try:
-        # Send accounts to MoEngage
-        for account in accounts:
-            # Check if emailaddress1 is valid
-            email = account.get('emailaddress1', '')  # Get email and strip any surrounding spaces
-            if not email or email.strip() == "":  # If email is empty or null
-                fail_count += 1
-                record = {
-                    "email": email,
-                    "status": "Email missing or invalid"
-                }
-                failed_records.append(record)
-                print(f"Account {email} has no valid email address")
-                continue  # Skip this account and move to the next one
-            
-            # If email is valid, proceed to send to MoEngage
-            payload = map_account_to_moengage(account)
-            try:
-                response = requests.post(MOENGAGE_API_URL, json=payload, headers=headers)
-                if response.status_code == 200:
-                    success_count += 1
-                    record = {
-                        "email": email,
-                        "status": response.text
-                    }
-                    success_records.append(record)
-                    print(f"Account {email} sent successfully")
-                else:
-                    fail_count += 1
-                    record = {
-                        "email": email,
-                        "status": response.text
-                    }
-                    failed_records.append(record)
-                    await send_to_SQS(payload)
-                    print(f"Account {email} failed with error: {response.text}")
-                    error_message = f"Failed to send account {email}: {response.text}"
-                    log_error(S3_BUCKET_NAME, error_message)
+    # Process All Accounts
+    for account in all_accounts:
+        email = account.get('emailaddress1', '')
+        if not email or email.strip() == "":
+            fail_all += 1
+            record = {"email": email, "status": "Email missing or invalid"}
+            failed_records_all.append(record)
+            print(f"Account {email} has no valid email address")
+            continue
 
-            except Exception as e:
-                print(e)
-                error_message = f"Error occurred while sending the payload to MoEngage: {str(e)}"
+        payload = map_account_to_moengage(account)
+        try:
+            response = requests.post(MOENGAGE_API_URL, json=payload, headers=headers)
+            if response.status_code == 200:
+                print(f"Account sent successfully for {account['emailaddress1']}")
+                success_all += 1
+                record = {"email": account['emailaddress1'], "status": response.text}
+                success_records_all.append(record)
+            else:
+                fail_all += 1
+                record = {"email": account['emailaddress1'], "status": response.text}
+                failed_records_all.append(record)
+                await send_to_SQS(payload)
+                print(f"Failed to send account {account['emailaddress1']}: {response.text}")
+                error_message = f"Failed to send account {account['emailaddress1']}: {response.text}"
                 log_error(S3_BUCKET_NAME, error_message)
-                raise HTTPException(status_code=500, details=f"{str(e)}")
+        except Exception as e:
+            error_message = f"Error Occurred while sending the payload to MoEngage: {str(e)}"
+            log_error(S3_BUCKET_NAME, error_message)
+            print(e)
+            raise HTTPException(status_code=500, detail=f"{str(e)}")
 
-        # Log processed records
-        log_message = json.dumps({
-            "timestamp": datetime.utcnow().isoformat(),
-            "success_count": success_count,
-            "fail_count": fail_count,
-            "total_accounts": len(accounts),
-            "success_records": success_records,
-            "failed_records": failed_records
-        }, indent=4)
+    # Process Created On Accounts
+    for account in created_on_accounts:
+        email = account.get('emailaddress1', '')
+        if not email or email.strip() == "":
+            fail_created += 1
+            record = {"email": email, "status": "Email missing or invalid"}
+            failed_records_created.append(record)
+            continue
 
-        log_processedRecords(S3_BUCKET_NAME, log_message)
+        payload = map_account_to_moengage(account)
+        try:
+            response = requests.post(MOENGAGE_API_URL, json=payload, headers=headers)
+            if response.status_code == 200:
+                success_created += 1
+                record = {"email": account['emailaddress1'], "status": response.text}
+                success_records_created.append(record)
+            else:
+                fail_created += 1
+                record = {"email": account['emailaddress1'], "status": response.text}
+                failed_records_created.append(record)
+                await send_to_SQS(payload)
+                error_message = f"Failed to send account {account['emailaddress1']}: {response.text}"
+                log_error(S3_BUCKET_NAME, error_message)
+        except Exception as e:
+            error_message = f"Error Occurred while sending the payload to MoEngage: {str(e)}"
+            log_error(S3_BUCKET_NAME, error_message)
+            print(e)
+            raise HTTPException(status_code=500, detail=f"{str(e)}")
 
-        return {"status": "Accounts synchronized successfully"}
+    # Process Modified On Accounts
+    for account in modified_on_accounts:
+        email = account.get('emailaddress1', '')
+        if not email or email.strip() == "":
+            fail_modified += 1
+            record = {"email": email, "status": "Email missing or invalid"}
+            failed_records_modified.append(record)
+            continue
+
+        payload = map_account_to_moengage(account)
+        try:
+            response = requests.post(MOENGAGE_API_URL, json=payload, headers=headers)
+            if response.status_code == 200:
+                success_modified += 1
+                record = {"email": account['emailaddress1'], "status": response.text}
+                success_records_modified.append(record)
+            else:
+                fail_modified += 1
+                record = {"email": account['emailaddress1'], "status": response.text}
+                failed_records_modified.append(record)
+                await send_to_SQS(payload)
+                error_message = f"Failed to send account {account['emailaddress1']}: {response.text}"
+                log_error(S3_BUCKET_NAME, error_message)
+        except Exception as e:
+            error_message = f"Error Occurred while sending the payload to MoEngage: {str(e)}"
+            log_error(S3_BUCKET_NAME, error_message)
+            print(e)
+            raise HTTPException(status_code=500, detail=f"{str(e)}")
+
+    # Log the processed records for each category
+    log_message = json.dumps({
+        "timestamp": datetime.utcnow().isoformat(),
+        "success_all": success_all,
+        "fail_all": fail_all,
+        "success_created": success_created,
+        "fail_created": fail_created,
+        "success_modified": success_modified,
+        "fail_modified": fail_modified,
+        "total_accounts": {
+            "all": len(all_accounts),
+            "created": len(created_on_accounts),
+            "modified": len(modified_on_accounts)
+        },
+        "success_records_all": success_records_all,
+        "failed_records_all": failed_records_all,
+        "success_records_created": success_records_created,
+        "failed_records_created": failed_records_created,
+        "success_records_modified": success_records_modified,
+        "failed_records_modified": failed_records_modified
+    }, indent=4)
+
+    log_processedRecords(S3_BUCKET_NAME, log_message)
+
+
+
+# async def sync_accounts():
+#     """Fetch accounts from CRM and send them to MoEngage."""
     
-    except Exception as e:
-        error_message = f"Error while sending accounts: {str(e)}"
-        log_error(S3_BUCKET_NAME, error_message)
-        raise HTTPException(status_code=500, details=f"{str(e)}")
+#     try:
+#         print("entered sync accounts")
+#         accounts_response = await fetch_accounts()
+#         accounts = accounts_response.get("accounts", [])
+
+#         await send_to_moengage(accounts)
+
+        
+#         return {"status": "Accounts synchronized to moengage.Please verify the status"}
+
+
+#     except Exception as e:
+#         error_message = f"Error during sync-Accounts: {str(e)}"
+#         log_error(S3_BUCKET_NAME, error_message)
+#         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+
+
+# async def send_to_moengage(accounts):
+#     success_count = 0
+#     fail_count = 0
+#     success_records = []
+#     failed_records = []
+
+#     headers = {
+#         'Authorization': token_moe,
+#         'Content-Type': 'application/json',
+#         'MOE-APPKEY': '6978DCU8W19J0XQOKS7NEE1C'
+#     }
+
+#     try:
+#         # Send accounts to MoEngage
+#         for account in accounts:
+#             # Check if emailaddress1 is valid
+#             email = account.get('emailaddress1', '')  # Get email and strip any surrounding spaces
+#             if not email or email.strip() == "":  # If email is empty or null
+#                 fail_count += 1
+#                 record = {
+#                     "email": email,
+#                     "status": "Email missing or invalid"
+#                 }
+#                 failed_records.append(record)
+#                 print(f"Account {email} has no valid email address")
+#                 continue  # Skip this account and move to the next one
+            
+#             # If email is valid, proceed to send to MoEngage
+#             payload = map_account_to_moengage(account)
+#             try:
+#                 response = requests.post(MOENGAGE_API_URL, json=payload, headers=headers)
+#                 if response.status_code == 200:
+#                     success_count += 1
+#                     record = {
+#                         "email": email,
+#                         "status": response.text
+#                     }
+#                     success_records.append(record)
+#                     print(f"Account {email} sent successfully")
+#                 else:
+#                     fail_count += 1
+#                     record = {
+#                         "email": email,
+#                         "status": response.text
+#                     }
+#                     failed_records.append(record)
+#                     await send_to_SQS(payload)
+#                     print(f"Account {email} failed with error: {response.text}")
+#                     error_message = f"Failed to send account {email}: {response.text}"
+#                     log_error(S3_BUCKET_NAME, error_message)
+
+#             except Exception as e:
+#                 print(e)
+#                 error_message = f"Error occurred while sending the payload to MoEngage: {str(e)}"
+#                 log_error(S3_BUCKET_NAME, error_message)
+#                 raise HTTPException(status_code=500, details=f"{str(e)}")
+
+#         # Log processed records
+#         log_message = json.dumps({
+#             "timestamp": datetime.utcnow().isoformat(),
+#             "success_count": success_count,
+#             "fail_count": fail_count,
+#             "total_accounts": len(accounts),
+#             "success_records": success_records,
+#             "failed_records": failed_records
+#         }, indent=4)
+
+#         log_processedRecords(S3_BUCKET_NAME, log_message)
+
+#         return {"status": "Accounts synchronized successfully"}
+    
+#     except Exception as e:
+#         error_message = f"Error while sending accounts: {str(e)}"
+#         log_error(S3_BUCKET_NAME, error_message)
+#         raise HTTPException(status_code=500, details=f"{str(e)}")
 
 
 # async def send_to_moengage(accounts):
