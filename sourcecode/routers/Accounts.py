@@ -103,8 +103,8 @@ async def fetch_accounts():
 
         # Define the date range in IST
         ist = timezone(timedelta(hours=5, minutes=30))
-        start_of_day_ist = datetime(2025, 1, 8, 0, 0, 0, tzinfo=ist)
-        end_of_day_ist = datetime(2025, 1, 8, 23, 59, 59, tzinfo=ist)
+        start_of_day_ist = datetime(2025, 1, 9, 0, 0, 0, tzinfo=ist)
+        end_of_day_ist = datetime(2025, 1, 9, 23, 59, 59, tzinfo=ist)
 
         # Convert IST to UTC for the API query
         start_period = start_of_day_ist.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'

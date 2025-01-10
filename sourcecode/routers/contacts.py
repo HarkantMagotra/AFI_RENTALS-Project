@@ -113,8 +113,8 @@ async def fetch_contacts():
 
         # Define the date range in UTC for the API query
         ist = timezone(timedelta(hours=5, minutes=30))
-        start_of_day_ist = datetime(2025, 1, 8, 0, 0, 0, tzinfo=ist)
-        end_of_day_ist = datetime(2025, 1, 8, 23, 59, 59, tzinfo=ist)
+        start_of_day_ist = datetime(2025, 1, 9, 0, 0, 0, tzinfo=ist)
+        end_of_day_ist = datetime(2025, 1, 9, 23, 59, 59, tzinfo=ist)
 
         start_period = start_of_day_ist.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
         end_period = end_of_day_ist.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
@@ -435,6 +435,18 @@ async def sync_contacts():
         all_contacts = contacts_response.get("contacts", [])
         created_on_contacts = contacts_response.get("created_on_contacts", [])
         modified_on_contacts = contacts_response.get("modified_on_contacts", [])
+
+        # print("\nprinting contacts:")
+        # for contact in all_contacts:
+        #     print(contact.get("emailaddress1", "No emailaddress1"))
+
+        # print("\nCreated On contacts:")
+        # for contact in created_on_contacts:
+        #     print(contact.get("emailaddress1", "No emailaddress1"))
+
+        # print("\nModified On contacts:")
+        # for contact in modified_on_contacts:
+        #     print(contact.get("emailaddress1", "No emailaddress1"))
         
         # Send the contacts to MoEngage with the necessary categorization
         await send_to_moengage(all_contacts, created_on_contacts, modified_on_contacts)
@@ -445,6 +457,8 @@ async def sync_contacts():
         error_message = f"Error during sync-contacts: {str(e)}"
         log_error(S3_BUCKET_NAME, error_message)
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
 
 # async def sync_contacts():
 #     """Fetch contacts from CRM and send them to MoEngage."""

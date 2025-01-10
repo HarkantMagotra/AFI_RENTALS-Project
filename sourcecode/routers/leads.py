@@ -78,17 +78,18 @@ def log_processedRecords(bucketname:str,log_records:str,source:str ="leads",key_
     except Exception as e:
         error_message=str(e)
         log_error(bucketname,error_message)
-        raise HTTPException(status_code=500,details="Records count failed to log.")
+        raise HTTPException(status_code=500,detail="Records count failed to log.")
     
 
 
 @router.get("/fetch-leads")
 async def fetch_leads():
 
-    # global global_token
+    global global_token
 
     try:
         token = await authenticate_crm()
+        global_token=token
         # global_token=token  # Ensure you're awaiting the async function
         if not token:
             raise HTTPException(status_code=401, detail="Failed to retrieve access token")
@@ -108,8 +109,8 @@ async def fetch_leads():
        
         # Define the date range in IST
         ist = timezone(timedelta(hours=5, minutes=30))
-        start_of_day_ist = datetime(2025, 1, 4, 0, 0, 0, tzinfo=ist)
-        end_of_day_ist = datetime(2025, 1, 4, 23, 59, 59, tzinfo=ist)
+        start_of_day_ist = datetime(2025, 1, 9, 0, 0, 0, tzinfo=ist)
+        end_of_day_ist = datetime(2025, 1, 9, 23, 59, 59, tzinfo=ist)
 
         # Convert IST to UTC for the API query
         start_period = start_of_day_ist.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
@@ -157,10 +158,23 @@ async def fetch_leads():
         print(f"Created on records count: {created_on_count}")
         print(f"Modified on records count: {modified_on_count}")
 
+        print("\n--- Fetched Leads ---")
+        print("All Leads:")
+        # for lead in all_leads:
+        #     print(lead.get("emailaddress1", "No emailaddress1"))
+
+        # print("\nCreated On Leads:")
+        # for lead in created_on_leads:
+        #     print(lead.get("emailaddress1", "No emailaddress1"))
+
+        # print("\nModified On Leads:")
+        # for lead in modified_on_leads:
+        #     print(lead.get("emailaddress1", "No emailaddress1"))
+
         return {
-            "accounts": all_leads,
-            "created_on_accounts": created_on_leads,
-            "modified_on_accounts": modified_on_leads,
+            "leads": all_leads,
+            "created_on_leads": created_on_leads,
+            "modified_on_leads": modified_on_leads,
             "created_on_count": created_on_count,
             "modified_on_count": modified_on_count,
         }
@@ -376,7 +390,7 @@ async def map_lead_to_moengage(lead):
     except Exception as e:
         error_message = f"Error during map-to-lead function: {str(e)}"
         log_error(S3_BUCKET_NAME, error_message)
-        raise HTTPException(status_code=500,details="failed in map function")
+        raise HTTPException(status_code=500,detail="failed in map function")
 
 
 async def send_to_moengage(all_leads, created_on_leads, modified_on_leads):
@@ -432,7 +446,7 @@ async def send_to_moengage(all_leads, created_on_leads, modified_on_leads):
             error_message = f"Error Occurred while sending the payload to MoEngage: {str(e)}"
             log_error(S3_BUCKET_NAME, error_message)
             print(e)
-            raise HTTPException(status_code=500, details=f"{str(e)}")
+            raise HTTPException(status_code=500, detail=f"{str(e)}")
 
     # Process Created On Leads
     for lead in created_on_leads:
@@ -461,7 +475,7 @@ async def send_to_moengage(all_leads, created_on_leads, modified_on_leads):
             error_message = f"Error Occurred while sending the payload to MoEngage: {str(e)}"
             log_error(S3_BUCKET_NAME, error_message)
             print(e)
-            raise HTTPException(status_code=500, details=f"{str(e)}")
+            raise HTTPException(status_code=500, detail=f"{str(e)}")
 
     # Process Modified On Leads
     for lead in modified_on_leads:
@@ -490,7 +504,7 @@ async def send_to_moengage(all_leads, created_on_leads, modified_on_leads):
             error_message = f"Error Occurred while sending the payload to MoEngage: {str(e)}"
             log_error(S3_BUCKET_NAME, error_message)
             print(e)
-            raise HTTPException(status_code=500, details=f"{str(e)}")
+            raise HTTPException(status_code=500, detail=f"{str(e)}")
 
     # Log the processed records for each category
     log_message = json.dumps({
@@ -628,27 +642,76 @@ async def send_to_SQS(failed_payload: dict):
 # Endpoint to fetch and send leads to MoEngage
 @router.get("/sync-leads")
 async def sync_leads():
-    """Fetch leads from CRM and send them to MoEngage."""
+    """Fetch contacts from CRM and send them to MoEngage."""
+    
     try:
-        print("entered sync leads")
+        print("entered sync contacts")
         
-        # Fetch the leads from CRM (already filtered by created and modified dates)
+        # Fetch the contacts from CRM (already filtered by created and modified dates)
         leads_response = await fetch_leads()
+
+        print("leads_response")
+        # print(leads_response)
         
-        # Extract the leads directly from the response
+        # Extract the contacts directly from the response
         all_leads = leads_response.get("leads", [])
+        
         created_on_leads = leads_response.get("created_on_leads", [])
+        
         modified_on_leads = leads_response.get("modified_on_leads", [])
         
-        # Send the leads to MoEngage with the necessary categorization
+
+        
+        # print("\nprinting On sync Leads:")
+        # for lead in all_leads:
+        #     print(lead.get("new_leadtype", "No new_leadtype"))
+
+        # print("\nCreated On sync Leads:")
+        # for lead in created_on_leads:
+        #     print(lead.get("new_leadtype", "No new_leadtype"))
+
+        # print("\nModified On sync Leads:")
+        # for lead in modified_on_leads:
+        #     print(lead.get("new_leadtype", "No new_leadtype"))
+        
+        # Send the contacts to MoEngage with the necessary categorization
         await send_to_moengage(all_leads, created_on_leads, modified_on_leads)
         
-        return {"status": "Leads synchronized successfully to MoEngage"}
+        return {"status": "Contacts synchronized successfully to MoEngage"}
        
     except Exception as e:
-        error_message = f"Error during sync-leads: {str(e)}"
+        error_message = f"Error during sync-contacts: {str(e)}"
         log_error(S3_BUCKET_NAME, error_message)
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+
+
+# async def sync_leads():
+#     """Fetch leads from CRM and send them to MoEngage."""
+#     try:
+#         print("entered sync leads")
+        
+#         # Fetch the leads from CRM (already filtered by created and modified dates)
+#         leads_response = await fetch_leads()
+        
+#         # Extract the leads directly from the response
+#         all_leads = leads_response.get("leads", [])
+#         created_on_leads = leads_response.get("created_on_leads", [])
+#         modified_on_leads = leads_response.get("modified_on_leads", [])
+        
+#         # Send the leads to MoEngage with the necessary categorization
+#         await send_to_moengage(all_leads, created_on_leads, modified_on_leads)
+        
+#         return {"status": "Leads synchronized successfully to MoEngage"}
+       
+#     except Exception as e:
+#         error_message = f"Error during sync-leads: {str(e)}"
+#         log_error(S3_BUCKET_NAME, error_message)
+#         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+
 
 # async def sync_leads():
 #     try:
@@ -674,10 +737,10 @@ async def fetch_metadata(attribute: str = Query("new_leadtype", description="Log
     
     global global_token
 
-    print(global_token)
+    # print(global_token)
     token = global_token
     print("printing globaltoken/n")
-    print(token)
+    # print(token)
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
@@ -714,6 +777,7 @@ async def fetch_metadata(attribute: str = Query("new_leadtype", description="Log
         raise HTTPException(status_code=e.response.status_code, detail=f"HTTP Error: {e.response.text}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred while fetching metadata: {str(e)}")
+
 
 
 async def fetch_statuscode_metadata(attribute: str = Query("statuscode", description="Logical name of the attribute to fetch metadata for")):
@@ -763,6 +827,8 @@ async def fetch_statuscode_metadata(attribute: str = Query("statuscode", descrip
         raise HTTPException(status_code=e.response.status_code, detail=f"HTTP Error: {e.response.text}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred while fetching statuscode metadata: {str(e)}")
+
+
 
 async def fetch_leadsourcecode_metadata(attribute: str = Query("leadsourcecode", description="Logical name of the attribute to fetch metadata for")):
    
