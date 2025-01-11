@@ -111,21 +111,19 @@ async def fetch_contacts():
             "new_hoistsemail,emailaddress1;$expand=new_PrimaryHireContact($select=emailaddress1),new_PrimaryTrainingContact($select=emailaddress1))"
         )
 
-        # Define the date range in UTC for the API query
-        ist = timezone(timedelta(hours=5, minutes=30))
-        start_of_day_ist = datetime(2025, 1, 9, 0, 0, 0, tzinfo=ist)
-        end_of_day_ist = datetime(2025, 1, 9, 23, 59, 59, tzinfo=ist)
+        
+        one_hour_ago = (datetime.utcnow() - timedelta(hours=1))
 
-        start_period = start_of_day_ist.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
-        end_period = end_of_day_ist.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+        # Format the DateTimeOffset correctly for CRM API (including UTC timezone)
+        period = one_hour_ago.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'  # Exclude extra microseconds and add 'Z' for UTC
 
-        print(f"Fetching contacts from: {start_period} to {end_period}")    
+        print(f"Formatted time: {period}")
 
         created_url = (f"{CRM_API_URL}/api/data/v9.0/contacts?"
-                       f"$filter=(createdon ge {start_period} and createdon le {end_period})&$select={query}&{query2}")
+                       f"$filter=(createdon ge {period})&$select={query}&{query2}")
 
         modified_url = (f"{CRM_API_URL}/api/data/v9.0/contacts?"
-                        f"$filter=(modifiedon ge {start_period} and modifiedon le {end_period})&$select={query}&{query2}")
+                        f"$filter=(modifiedon ge {period})&$select={query}&{query2}")
 
         all_contacts = []
         created_on_contacts = []
@@ -163,18 +161,7 @@ async def fetch_contacts():
         print(f"Created on records count: {created_on_count}")
         print(f"Modified on records count: {modified_on_count}")
 
-        # # Print details for all_contacts, created_on_contacts, and modified_on_contacts
-        # print("\nAll Contacts (email, firstname, name):")
-        # for contact in all_contacts:  # Print first 5 contacts for testing
-        #     print(f"Email: {contact.get('emailaddress1')}, First Name: {contact.get('firstname')}, Name: {contact.get('name')} modifiedon: {contact.get('modifiedon')} createdon: {contact.get('createdon')}")
-
-        # print("\nCreated On Contacts (email, firstname, name):")
-        # for contact in created_on_contacts:  # Print first 5 created contacts for testing
-        #     print(f"Email: {contact.get('emailaddress1')}, First Name: {contact.get('firstname')}, Name: {contact.get('name')} modifiedon: {contact.get('modifiedon')} createdon: {contact.get('createdon')}")
-
-        # print("\nModified On Contacts (email, firstname, name):")
-        # for contact in modified_on_contacts:  # Print first 5 modified contacts for testing
-        #     print(f"Email: {contact.get('emailaddress1')}, First Name: {contact.get('firstname')}, Name: {contact.get('name')} modifiedon: {contact.get('modifiedon')} createdon: {contact.get('createdon')}")
+       
 
         return {
             "contacts": all_contacts,
@@ -194,99 +181,6 @@ async def fetch_contacts():
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 
-
-
-# async def fetch_contacts():
-#     """Fetch contacts from Dynamics 365 CRM using the access token."""
-#     try:
-#         token = await authenticate_crm()
-#         if not token:
-#             raise HTTPException(status_code=401, detail="Failed to retrieve access token")
-
-#         headers = {
-#             "Authorization": f"Bearer {token}",
-#             "Content-Type": "application/json",
-#         }
-
-#         query = (
-#             "emailaddress1,_accountid_value,_parentcustomerid_value,modifiedon,telephone1,mobilephone,jobtitle," 
-#             "firstname,address1_city,lastname,address1_line1,address1_line2,address1_line3,address1_postalcode," 
-#             "donotemail,donotphone,new_afiupliftemail,new_underbridgevanmountemail,new_rapidemail,new_rentalsspecialoffers," 
-#             "new_resaleemail,new_trackemail,new_truckemail,new_utnemail,new_hoistsemail,data8_tpsstatus,new_lastmewpscall," 
-#             "new_lastmewpscallwith,new_lastemailed,new_lastemailedby,new_lastcalled,new_lastcalledby,new_registerforupliftonline," 
-#             "createdon,preferredcontactmethodcode"
-#         )
-
-#         query2 = (
-#             "$expand=parentcustomerid_account($select=accountnumber,name,new_accountopened,creditlimit," 
-#             "new_creditposition,new_ytdrevenue,new_lastyearrevenue,new_twoyearsagorevenue,data8_tpsstatus," 
-#             "address1_line1,address1_line2,address1_line3,address1_city,address1_postalcode,sic,new_registration_no," 
-#             "_new_primaryhirecontact_value,_new_primarytrainingcontact_value,new_lastinvoicedate,new_lasttrainingdate," 
-#             "new_groupaccountmanager,new_rentalam,donotemail,donotphone,new_afiupliftemail,new_underbridgevanmountemail," 
-#             "new_rapidemail,new_rentalsspecialoffers,new_resaleemail,new_trackemail,new_truckemail,new_utnemail," 
-#             "new_hoistsemail,emailaddress1;$expand=new_PrimaryHireContact($select=emailaddress1),new_PrimaryTrainingContact($select=emailaddress1))"
-#         )
-
-#         # Define the date range in UTC for the API query
-#         ist = timezone(timedelta(hours=5, minutes=30))
-#         start_of_day_ist = datetime(2025, 1, 4, 0, 0, 0, tzinfo=ist)
-#         end_of_day_ist = datetime(2025, 1, 4, 23, 59, 59, tzinfo=ist)
-
-#         start_period = start_of_day_ist.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
-#         end_period = end_of_day_ist.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
-
-#         print(f"Fetching contacts from: {start_period} to {end_period}")    
-
-#         created_url = (f"{CRM_API_URL}/api/data/v9.0/contacts?"
-#                        f"$filter=(createdon ge {start_period} and createdon le {end_period})&$select={query}&{query2}")
-
-#         modified_url = (f"{CRM_API_URL}/api/data/v9.0/contacts?"
-#                         f"$filter=(modifiedon ge {start_period} and modifiedon le {end_period})&$select={query}&{query2}")
-
-#         all_contacts = []
-#         created_on_count = 0
-#         modified_on_count = 0
-
-#         async with httpx.AsyncClient() as client:
-#             for url, counter_key in [(created_url, 'created_on_count'), (modified_url, 'modified_on_count')]:
-#                 while url:
-#                     response = await client.get(url, headers=headers)
-#                     if response.status_code == 200:
-#                         data = response.json()
-#                         new_records = [record for record in data.get("value", []) if record not in all_contacts]
-#                         all_contacts.extend(new_records)
-
-#                         if counter_key == 'created_on_count':
-#                             created_on_count += len(new_records)
-#                         else:
-#                             modified_on_count += len(new_records)
-
-#                         # Handle pagination for more records
-#                         url = data.get("@odata.nextLink")
-#                     else:
-#                         error_message = f"Error while fetching contacts: {response.text}"
-#                         log_error(S3_BUCKET_NAME, error_message)
-#                         raise HTTPException(status_code=response.status_code, detail="Failed to fetch contacts from CRM.")
-
-#         # Print total counts of created and modified records
-#         print(f"Total records fetched: {len(all_contacts)}")
-#         print(f"Created on records count: {created_on_count}")
-#         print(f"Modified on records count: {modified_on_count}")
-
-#         return {
-#             "contacts": all_contacts,
-#             "created_on_count": created_on_count,
-#             "modified_on_count": modified_on_count
-#         }
-
-#     except httpx.RequestError as e:
-#         error_message = f"Error during HTTP request: {str(e)}"
-#         log_error(S3_BUCKET_NAME, error_message)
-#         raise HTTPException(status_code=500, detail="Error during HTTP request.")
-#     except Exception as e:
-#         error_message = f"Failed to fetch contacts: {str(e)}"
-#         log_error(S3_BUCKET_NAME, error_message)
-#         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 
 
@@ -436,18 +330,6 @@ async def sync_contacts():
         created_on_contacts = contacts_response.get("created_on_contacts", [])
         modified_on_contacts = contacts_response.get("modified_on_contacts", [])
 
-        # print("\nprinting contacts:")
-        # for contact in all_contacts:
-        #     print(contact.get("emailaddress1", "No emailaddress1"))
-
-        # print("\nCreated On contacts:")
-        # for contact in created_on_contacts:
-        #     print(contact.get("emailaddress1", "No emailaddress1"))
-
-        # print("\nModified On contacts:")
-        # for contact in modified_on_contacts:
-        #     print(contact.get("emailaddress1", "No emailaddress1"))
-        
         # Send the contacts to MoEngage with the necessary categorization
         await send_to_moengage(all_contacts, created_on_contacts, modified_on_contacts)
         
@@ -458,26 +340,6 @@ async def sync_contacts():
         log_error(S3_BUCKET_NAME, error_message)
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
-
-
-# async def sync_contacts():
-#     """Fetch contacts from CRM and send them to MoEngage."""
-    
-#     try:
-#         print("enetered sync contacts")
-#         contacts_response = await fetch_contacts()
-#         contacts = contacts_response.get("contacts", [])
-      
-      
-#         await send_to_moengage(contacts)
-        
-#         return {"status": "Contacts synchronized successfully to moengage"}
-       
-#     except Exception as e:
-#         error_message = f"Error during sync-contacts: {str(e)}"
-#         log_error(S3_BUCKET_NAME, error_message)
-#         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
-    
 
 
 async def send_to_moengage(all_contacts, created_on_contacts, modified_on_contacts):
@@ -617,195 +479,6 @@ async def send_to_moengage(all_contacts, created_on_contacts, modified_on_contac
 
     log_processedRecords(S3_BUCKET_NAME, log_message)
 
-
-
-
-
-# async def send_to_moengage(contacts):
-#     success_count = 0
-#     fail_count = 0
-
-#     success_records = []
-#     failed_records = []
-    
-#     print("Printing token")
-#     print(moe_token)
-    
-#     headers = {
-#         'Authorization': token_moe,
-#         'Content-Type': 'application/json',
-#         'MOE-APPKEY': '6978DCU8W19J0XQOKS7NEE1C'
-#     }
-
-#     # Send contacts to MoEngage
-#     try:
-#         for contact in contacts:
-#             # Check if emailaddress1 is valid
-#             email = contact.get('emailaddress1', '')  # Get email and strip any surrounding spaces
-#             if not email or email.strip() == "":  # If email is empty or null
-#                 fail_count += 1
-#                 record = {
-#                     "email": email,
-#                     "status": "Email missing or invalid"
-#                 }
-#                 failed_records.append(record)
-#                 print(f"Account {email} has no valid email address")
-#                 continue  # Skip this account and move to the next one
-
-#             payload = map_contact_to_moengage(contact)
-#             print("Printing payload")
-#             print(payload)
-            
-#             try:
-#                 response = requests.post(MOENGAGE_API_URL, json=payload, headers=headers)
-#                 if response.status_code == 200:
-#                     print(f"Contact sent successfully for {contact['emailaddress1']}")
-#                     success_count += 1
-
-#                     record = {
-#                         "email": contact['emailaddress1'],
-#                         "error": response.text
-#                     }
-#                     success_records.append(record)
-#                 else:
-#                     print(f"Failed to send contact {contact['emailaddress1']}: {response.text}")
-#                     fail_count += 1
-#                     record = {
-#                         "email": contact['emailaddress1'],
-#                         "error": response.text
-#                     }
-#                     failed_records.append(record)
-#                     await send_to_SQS(payload)
-#                     print(failed_records)
-#                     error_message = f"Failed to send account {contact['emailaddress1']}: {response.text}"
-#                     log_error(S3_BUCKET_NAME, error_message)  # Log the error
-#                     print(f"Account {contact['emailaddress1']} failed with error: {response.text}")
-
-#             except Exception as e:
-#                 print(e)
-#                 error_message = f"Error Occurred while sending the payload to MoEngage: {str(e)}"
-#                 log_error(S3_BUCKET_NAME, error_message)
-#                 raise HTTPException(status_code=500, details=f"{str(e)}")
-
-#         # Log the processed records
-#         log_message = json.dumps({
-#             "timestamp": datetime.utcnow().isoformat(),
-#             "success_count": success_count,
-#             "fail_count": fail_count,
-#             "total_contacts": len(contacts),
-#             "success_records": success_records,
-#             "failed_records": failed_records
-#         }, indent=4)  # Optional: indent makes JSON more readable
-
-#         log_processedRecords(S3_BUCKET_NAME, log_message)
-
-#     except Exception as e:
-#         error_message = f"Error during send-to-moengage function in contacts: {str(e)}"
-#         log_error(S3_BUCKET_NAME, error_message)
-#         raise HTTPException(status_code=500, details="Please contact the Developer")
-
-
-
-
-# async def send_to_moengage(contacts):
-#     # Initialize counters
-#     created_success_count = 0
-#     created_fail_count = 0
-#     modified_success_count = 0
-#     modified_fail_count = 0
-
-#     success_records = []
-#     failed_records = []
-
-#     print("Printing token")
-#     print(moe_token)
-
-#     headers = {
-#         'Authorization': token_moe,
-#         'Content-Type': 'application/json',
-#         'MOE-APPKEY': '6978DCU8W19J0XQOKS7NEE1C'
-#     }
-
-#     # Send contacts to MoEngage
-#     try:
-#         for contact in contacts:
-#             # Check for email validity
-#             if not contact.get('emailaddress1'):
-#                 # No valid email - increment fail count
-#                 record = {"email": None, "status": "Email missing or invalid"}
-#                 failed_records.append(record)
-
-#                 # Categorize as created or modified
-#                 created_on = contact.get("createdon")
-#                 modified_on = contact.get("modifiedon")
-#                 if created_on and not modified_on:
-#                     created_fail_count += 1
-#                 elif modified_on:
-#                     modified_fail_count += 1
-#                 else:
-#                     # If no clear category, consider this an unknown failure
-#                     modified_fail_count += 1
-#                 continue
-
-#             # Map the contact to MoEngage format
-#             payload = map_contact_to_moengage(contact)
-
-#             try:
-#                 response = requests.post(MOENGAGE_API_URL, json=payload, headers=headers)
-#                 if response.status_code == 200:
-#                     # Categorize as created or modified
-#                     created_on = contact.get("createdon")
-#                     modified_on = contact.get("modifiedon")
-
-#                     if created_on and not modified_on:
-#                         created_success_count += 1
-#                     elif modified_on:
-#                         modified_success_count += 1
-#                     else:
-#                         # Handle edge cases where category is unclear
-#                         modified_success_count += 1
-
-#                     record = {"email": contact['emailaddress1'], "status": "Success"}
-#                     success_records.append(record)
-#                 else:
-#                     # Handle failed records
-#                     created_on = contact.get("createdon")
-#                     modified_on = contact.get("modifiedon")
-
-#                     if created_on and not modified_on:
-#                         created_fail_count += 1
-#                     elif modified_on:
-#                         modified_fail_count += 1
-#                     else:
-#                         modified_fail_count += 1
-
-#                     record = {"email": contact['emailaddress1'], "error": response.text}
-#                     failed_records.append(record)
-
-#                     # Send failed payload to SQS for retry
-#                     await send_to_SQS(payload)
-
-#             except Exception as e:
-#                 log_error(S3_BUCKET_NAME, f"Error sending payload to MoEngage: {str(e)}")
-#                 raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
-
-#         # Log processed records
-#         log_message = json.dumps({
-#             "timestamp": datetime.utcnow().isoformat(),
-#             "created_success_count": created_success_count,
-#             "created_fail_count": created_fail_count,
-#             "modified_success_count": modified_success_count,
-#             "modified_fail_count": modified_fail_count,
-#             "total_contacts": len(contacts),
-#             "success_records": success_records,
-#             "failed_records": failed_records,
-#         }, indent=4)
-
-#         log_processedRecords(S3_BUCKET_NAME, log_message)
-
-#     except Exception as e:
-#         log_error(S3_BUCKET_NAME, f"Error in send_to_moengage: {str(e)}")
-#         raise HTTPException(status_code=500, detail="Error during send-to-moengage function")
 
 
 @router.post("/SQS")  # Fixed route path

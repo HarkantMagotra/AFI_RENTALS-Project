@@ -101,25 +101,25 @@ async def fetch_accounts():
             "new_PrimaryTrainingContact($select=emailaddress1)"
         )
 
-        # Define the date range in IST
-        ist = timezone(timedelta(hours=5, minutes=30))
-        start_of_day_ist = datetime(2025, 1, 9, 0, 0, 0, tzinfo=ist)
-        end_of_day_ist = datetime(2025, 1, 9, 23, 59, 59, tzinfo=ist)
+        # 
+        
+        one_hour_ago = (datetime.utcnow() - timedelta(hours=1))
 
-        # Convert IST to UTC for the API query
-        start_period = start_of_day_ist.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
-        end_period = end_of_day_ist.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+        # Format the DateTimeOffset correctly for CRM API (including UTC timezone)
+        period = one_hour_ago.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'  # Exclude extra microseconds and add 'Z' for UTC
 
-        print(f"Fetching accounts from: {start_period} to {end_period}")
+        print(f"Formatted time: {period}")
+
+        # print(f"Fetching accounts from: {start_period} to {end_period}")
 
         created_url = (
             f"{CRM_API_URL}/api/data/v9.0/accounts?"
-            f"$filter=(createdon ge {start_period} and createdon le {end_period})"
+            f"$filter=(createdon ge {period})"
             f"&$select={query}&{expand_query}"
         )
         modified_url = (
             f"{CRM_API_URL}/api/data/v9.0/accounts?"
-            f"$filter=(modifiedon ge {start_period} and modifiedon le {end_period})"
+            f"$filter=(modifiedon ge {period})"
             f"&$select={query}&{expand_query}"
         )
 
